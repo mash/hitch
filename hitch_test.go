@@ -18,6 +18,18 @@ func TestHome(t *testing.T) {
 	expectHeaders(t, res)
 }
 
+func TestCopied(t *testing.T) {
+	s := newCopiedTestServer(t)
+	_, res := s.request("GET", "/")
+	defer res.Body.Close()
+	st.Expect(t, res.StatusCode, 404)
+
+	_, res2 := s.request("GET", "/sub")
+	defer res2.Body.Close()
+	expectHeaders(t, res2)
+	st.Expect(t, res2.StatusCode, 200)
+}
+
 func TestEcho(t *testing.T) {
 	s := newTestServer(t)
 	_, res := s.request("GET", "/api/echo/hip-hop")
@@ -71,6 +83,22 @@ func newTestServer(t *testing.T) *testServer {
 	h.Get("/route_middleware", http.HandlerFunc(home), testMiddleware("middleware1"), testMiddleware("middleware2"))
 
 	s := &testServer{httptest.NewServer(h.Handler()), t}
+	runtime.SetFinalizer(s, func(s *testServer) { s.Server.Close() })
+	return s
+}
+
+func newCopiedTestServer(t *testing.T) *testServer {
+	h := New()
+	h.Use(logger, plaintext)
+	h.UseHandler(http.HandlerFunc(awesome))
+	h.HandleFunc("GET", "/", home)
+
+	sub := New()
+	sub.Use(h.Middleware...)
+	// no handler on /
+	sub.HandleFunc("GET", "/sub", home)
+
+	s := &testServer{httptest.NewServer(sub.Handler()), t}
 	runtime.SetFinalizer(s, func(s *testServer) { s.Server.Close() })
 	return s
 }
