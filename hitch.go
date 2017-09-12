@@ -37,6 +37,19 @@ func (h *Hitch) UseHandler(handler http.Handler) {
 	})
 }
 
+// UseIf passes the request to handler only if cond meets
+func (h *Hitch) UseIf(cond func(req *http.Request) bool, handler http.Handler) {
+	h.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if cond(req) {
+				handler.ServeHTTP(w, req)
+			} else {
+				next.ServeHTTP(w, req)
+			}
+		})
+	})
+}
+
 // Next registers an http.Handler as a fallback/not-found handler.
 func (h *Hitch) Next(handler http.Handler) {
 	h.Router.NotFound = handler
