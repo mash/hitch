@@ -48,6 +48,29 @@ func TestRouteMiddleware(t *testing.T) {
 	st.Assert(t, string(body), "middleware1 -> middleware2 -> Hello, world! -> middleware2 -> middleware1")
 }
 
+func TestHandleIf(t *testing.T) {
+	s := newTestServer2(t)
+	{
+		_, res := s.request("GET", "/", map[string]string{
+			"x-route": "next",
+		})
+		defer res.Body.Close()
+		expectHeaders(t, res)
+		body, _ := ioutil.ReadAll(res.Body)
+		st.Assert(t, string(body), "next")
+	}
+
+	{
+		_, res := s.request("GET", "/", map[string]string{
+			"x-route": "fallback",
+		})
+		defer res.Body.Close()
+		expectHeaders(t, res)
+		body, _ := ioutil.ReadAll(res.Body)
+		st.Assert(t, string(body), "Hello, world!")
+	}
+}
+
 func expectHeaders(t *testing.T, res *http.Response) {
 	st.Expect(t, res.Header.Get("Content-Type"), "text/plain")
 	st.Expect(t, res.Header.Get("X-Awesome"), "awesome")
@@ -60,10 +83,15 @@ type testServer struct {
 	t *testing.T
 }
 
-func (s *testServer) request(method, path string) (*http.Request, *http.Response) {
+func (s *testServer) request(method, path string, headers ...map[string]string) (*http.Request, *http.Response) {
 	req, err := http.NewRequest(method, s.URL+path, nil)
 	if err != nil {
 		s.t.Fatal(err)
+	}
+	for _, header := range headers {
+		for k, v := range header {
+			req.Header.Set(k, v)
+		}
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -81,6 +109,28 @@ func newTestServer(t *testing.T) *testServer {
 	api.Get("/api/echo/:phrase", http.HandlerFunc(echo))
 	h.Next(api.Handler())
 	h.Get("/route_middleware", http.HandlerFunc(home), testMiddleware("middleware1"), testMiddleware("middleware2"))
+
+	s := &testServer{httptest.NewServer(h.Handler()), t}
+	runtime.SetFinalizer(s, func(s *testServer) { s.Server.Close() })
+	return s
+}
+
+func newTestServer2(t *testing.T) *testServer {
+	h := New()
+	h.Use(logger, plaintext)
+	h.UseHandler(http.HandlerFunc(awesome))
+	h.HandleIf(func(next, fallback http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.Header.Get("x-route") == "next" {
+				next.ServeHTTP(w, req)
+			} else {
+				fallback.ServeHTTP(w, req)
+			}
+		})
+	}, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprint(w, "next")
+	}))
+	h.HandleFunc("GET", "/", home)
 
 	s := &testServer{httptest.NewServer(h.Handler()), t}
 	runtime.SetFinalizer(s, func(s *testServer) { s.Server.Close() })

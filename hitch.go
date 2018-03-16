@@ -50,6 +50,14 @@ func (h *Hitch) UseIf(cond func(req *http.Request) bool, handler http.Handler) {
 	})
 }
 
+func (h *Hitch) HandleIf(branch func(http.Handler, http.Handler) http.Handler, next http.Handler) {
+	h.Use(func(fallback http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			branch(next, fallback).ServeHTTP(w, req)
+		})
+	})
+}
+
 // Next registers an http.Handler as a fallback/not-found handler.
 func (h *Hitch) Next(handler http.Handler) {
 	h.Router.NotFound = handler
